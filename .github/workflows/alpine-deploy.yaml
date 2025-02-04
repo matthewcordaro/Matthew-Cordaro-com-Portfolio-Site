@@ -1,0 +1,57 @@
+name: Deploy to Alpine Container
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build project
+        run: pnpm build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        run: |
+          docker buildx build --platform linux/amd64 --tag ghcr.io/${{ github.repository_owner }}/my-nextjs-app:latest --push .
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: SSH into mini PC
+        uses: appleboy/ssh-action@v0.1.1
+        with:
+          host: ${{ secrets.MINIPC_HOST }}
+          username: ${{ secrets.MINIPC_USER }}
+          password: ${{ secrets.MINIPC_PASSWORD }}
+          script: |
+            docker pull ghcr.io/${{ github.repository_owner }}/my-nextjs-app:latest
+            docker stop my-nextjs-app || true
+            docker rm my-nextjs-app || true
+            docker run -d --name my-nextjs-app -p 3000:3000 ghcr.io/${{ github.repository_owner }}/my-nextjs-app:latest
